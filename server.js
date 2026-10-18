@@ -43,7 +43,12 @@ app.get('/api/data', async (req, res) => {
   try {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const data = await db.getAll();
-    res.json(data);
+    const counts = await db.getCounts();
+    res.json({
+      ...data,
+      storage: counts.storage,
+      cloudActive: counts.cloudActive
+    });
   } catch (err) {
     console.error('Error fetching data:', err);
     res.status(500).json({ error: 'Failed to fetch data' });

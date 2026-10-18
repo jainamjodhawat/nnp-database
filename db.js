@@ -464,13 +464,19 @@ async function init() {
   const pgUri = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
   if (mongoUri) {
-    try {
-      await initMongo(mongoUri);
-      await bootstrapCloudIfEmpty();
-      return;
-    } catch (err) {
-      console.error('⚠️ Could not connect to MongoDB Atlas cloud:', err.message);
-      console.log('Falling back to local storage.');
+    if (mongoUri.includes('cluster0.abcde.mongodb.net') || mongoUri.includes('<username>') || mongoUri.includes('<password>')) {
+      console.warn('⚠️ MONGODB_URI in .env contains the placeholder "cluster0.abcde.mongodb.net".');
+      console.warn('   Please replace it with your real cluster address from your MongoDB Atlas dashboard (e.g. cluster0.7xyzq.mongodb.net).');
+      console.log('Falling back to local storage in the meantime.');
+    } else {
+      try {
+        await initMongo(mongoUri);
+        await bootstrapCloudIfEmpty();
+        return;
+      } catch (err) {
+        console.error('⚠️ Could not connect to MongoDB Atlas cloud:', err.message);
+        console.log('Falling back to local storage.');
+      }
     }
   } else if (pgUri) {
     try {

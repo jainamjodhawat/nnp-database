@@ -150,21 +150,23 @@ var sortedTrips=function(){return Object.values(S.trips).sort(function(a,b){retu
 
 /* ---------- storage ---------- */
 function fail(e){ toast('Could not save: '+((e&&e.code==='invalid_argument')?'you have view-only access.':(e&&e.message)||'storage error')) }
-var saveQueue = Promise.resolve(), isApiServer = false;
+var saveQueue = Promise.resolve(), isApiServer = false, dbInfo = '';
+var apiBase = (window.location.protocol === 'file:') ? 'http://localhost:3000' : '';
 
 function setupLiveSync(){
   if (!window.EventSource) return;
   try {
-    var es = new EventSource('/api/events');
+    var es = new EventSource(apiBase + '/api/events');
     es.onmessage = function(ev){
       try {
         var msg = JSON.parse(ev.data);
         if (msg && msg.type === 'update' && !busy && !dirty.p.size && !dirty.r.size && !dirty.t.size && !dirty.dt.size) {
-          fetch('/api/data', { cache: 'no-store' }).then(function(r){ return r.json() }).then(function(data){
+          fetch(apiBase + '/api/data', { cache: 'no-store' }).then(function(r){ return r.json() }).then(function(data){
             if (!busy && !dirty.p.size && !dirty.r.size && !dirty.t.size && !dirty.dt.size) {
               S.people = data.people || {};
               S.regs = data.regs || {};
               S.trips = data.trips || {};
+              if (data.storage) dbInfo = data.storage;
               try{ localStorage.setItem('yatra.v1', JSON.stringify({people:S.people, regs:S.regs, trips:S.trips})); }catch(e){}
               inv();
               render();
@@ -179,12 +181,13 @@ function setupLiveSync(){
 async function connect(){
   // 1. Try server backend API
   try {
-    var res = await fetch('/api/data', { cache: 'no-store' });
+    var res = await fetch(apiBase + '/api/data', { cache: 'no-store' });
     if (res.ok) {
       var data = await res.json();
       S.people = data.people || {};
       S.regs = data.regs || {};
       S.trips = data.trips || {};
+      dbInfo = data.storage || 'Cloud Database';
       isApiServer = true;
       mode = 'cloud';
       loaded.p = loaded.r = loaded.t = true;
@@ -199,7 +202,7 @@ async function connect(){
   // 2. Claude environment fallback
   var d=null; try{ d=(window.claude&&window.claude.use)?await window.claude.use('db'):null }catch(e){d=null}
   if(d){
-    db=d; mode='cloud';
+    db=d; mode='cloud'; dbInfo = 'Shared Store';
     var merge=function(snap,key){var m={};snap.docs.forEach(function(x){Object.assign(m,(x.data()||{})[key]||{})});return m};
     db.collection('pshard').onSnapshot(function(s){ if(!busy&&!dirty.p.size){S.people=merge(s,'p')} loaded.p=true; inv(); render() },fail);
     db.collection('rshard').onSnapshot(function(s){ if(!busy&&!dirty.r.size){S.regs=merge(s,'r')} loaded.r=true; inv(); render() },fail);
@@ -226,7 +229,7 @@ async function commit(){
     if(isApiServer){
       var payload = { people: S.people, regs: S.regs, trips: S.trips };
       await (saveQueue = saveQueue.then(async function(){
-        var res = await fetch('/api/save', {
+        var res = await fetch(apiBase + '/api/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -242,7 +245,7 @@ async function commit(){
       for(var d of Array.from(dirty.dt)){ await db.collection('trips').doc(d).delete(); for(var h of '0123456789abcdef'){ await db.collection('rshard').doc(d+'_'+h).delete() } dirty.dt.delete(d) }
     } else {
       try{ localStorage.setItem('yatra.v1',JSON.stringify({people:S.people,regs:S.regs,trips:S.trips})) }catch(e){ toast('Browser storage is full or blocked.') }
-      dirty.p.clear();dirty.r.clear();dirty.t.clear();dirty.dt.clear();
+      dirty.p.clear();dirty.r.clear();dirty.t.clear();dirty.dt.clear()
     }
   }catch(e){ fail(e) }
   busy--;
@@ -499,7 +502,7 @@ function render(){
   var fl=Object.values(S.people).filter(function(p){return p.flag&&S.people[p.flag.of]}).length;
   var nav=[['master','Overview'],['trips','Trips'],['people','People'],['review','Review'],['import','Import']];
   var cur=UI.view==='trip'?'trips':UI.view;
-  var pillCls=(mode==='cloud'||mode==='browser')?'good':mode==='local'?'warn':'', pillTxt=mode==='cloud'?'Saved to shared store':mode==='browser'?'Saved in this browser':mode==='local'?'Preview only, not saved':'Connecting…';
+  var pillCls=(mode==='cloud'||mode==='browser')?'good':mode==='local'?'warn':'', pillTxt=mode==='cloud'?(dbInfo.indexOf('MongoDB')>=0?'Saved to MongoDB Atlas':(dbInfo||'Saved to Cloud')):mode==='browser'?(window.location.protocol==='file:'?'Local Mode (Start server for MongoDB)':'Saved in this browser'):mode==='local'?'Preview only, not saved':'Connecting…';
   var ready=loaded.p&&loaded.r&&loaded.t;
   var body=!ready?'<p class="note">Loading registry…</p>':UI.view==='master'?vMaster():UI.view==='trips'?vTrips():UI.view==='trip'?vTrip():UI.view==='people'?vPeople():UI.view==='review'?vReview():vImport();
   $('#app').innerHTML='<div class="top"><div class="wrap"><div class="bar"><div class="brand"><b>Yatra Desk</b><span>यात्रा</span></div><span class="pill '+pillCls+'"><i></i>'+pillTxt+'</span></div><nav class="nav" aria-label="Sections">'+
