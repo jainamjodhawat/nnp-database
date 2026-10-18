@@ -146,6 +146,46 @@ app.post('/api/save', async (req, res) => {
   }
 });
 
+// Proxy endpoint to fetch Google Sheets CSV without browser CORS issues
+app.get('/api/fetch-sheet', async (req, res) => {
+  try {
+    const sheetUrl = req.query.url;
+    if (!sheetUrl) return res.status(400).json({ error: 'Missing url parameter' });
+
+    let parsed;
+    try {
+      parsed = new URL(sheetUrl);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+
+    // Security check: ensure URL points to Google Sheets
+    if (!parsed.hostname.includes('google.com') && !parsed.hostname.includes('googleusercontent.com')) {
+      return res.status(400).json({ error: 'Only Google Sheets URLs are supported' });
+    }
+
+    const response = await fetch(sheetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/csv,text/plain,*/*'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: `Failed to fetch from Google (${response.status}: ${response.statusText}). Make sure the sheet is published as CSV.`
+      });
+    }
+
+    const text = await response.text();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(text);
+  } catch (err) {
+    console.error('Error fetching Google Sheet:', err);
+    res.status(500).json({ error: 'Failed to fetch Google Sheet: ' + err.message });
+  }
+});
+
 // SSE endpoint
 app.get('/api/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');

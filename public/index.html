@@ -143,7 +143,7 @@ var UI={view:'master',trip:null,tab:'overview',pq:'',pf:'all',tq:'',tg:'all',tsp
 var db=null, mode='connecting', loaded={p:false,r:false,t:false}, busy=0;
 var dirty={p:new Set(),r:new Set(),t:new Set(),dt:new Set()};
 var wb=null;
-function newImp(){return {tripMode:'new',tripId:'',nt:{name:'',dest:'',start:'',end:'',cap:''},fileName:'',sheets:[],sheet:'',headers:[],rows:[],map:{},plan:null,busy:false,done:null}}
+function newImp(){return {tripMode:'new',tripId:'',nt:{name:'',dest:'',start:'',end:'',cap:''},fileName:'',sheetUrl:'',sheets:[],sheet:'',headers:[],rows:[],map:{},plan:null,busy:false,done:null}}
 var $=function(s){return document.querySelector(s)};
 var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})};
 var inv=function(){_D=null};
@@ -470,7 +470,8 @@ function vTrip(){
   var t=S.trips[UI.trip]; if(!t){UI.view='trips';return vTrips()}
   var st=tripStats(t.id), cap=+t.cap||0, tabs=[['overview','Overview'],['people','Participants'],['issues','Checks'],['settings','Trip details']], iss=issuesFor(t.id);
   var label=t.special||'Special arrangement';
-  var head='<div class="head"><div><button class="link" data-act="nav" data-id="trips">← All trips</button><h2 class="mt">'+esc(t.name)+'</h2><p>'+esc(t.dest||'')+(t.dest?' · ':'')+fmtRange(t)+' <span class="pill">'+esc(t.status)+'</span></p></div><div class="btns"><button class="btn" data-act="reimport" data-id="'+t.id+'">Add rows from a sheet</button><button class="btn" data-act="exportTrip">Export CSV</button></div></div>'+
+  var head=var syncBtn = t.sheetUrl ? '<button class="btn primary" data-act="syncTripSheet" data-id="'+t.id+'">🔄 Sync Google Sheet</button>' : '';
+  var head='<div class="head"><div><button class="link" data-act="nav" data-id="trips">← All trips</button><h2 class="mt">'+esc(t.name)+'</h2><p>'+esc(t.dest||'')+(t.dest?' · ':'')+fmtRange(t)+' <span class="pill">'+esc(t.status)+'</span></p></div><div class="btns">'+syncBtn+'<button class="btn" data-act="reimport" data-id="'+t.id+'">Add rows from a sheet</button><button class="btn" data-act="exportTrip">Export CSV</button></div></div>'+
     '<div class="nav" style="margin-top:0">'+tabs.map(function(x){return '<button data-act="tripTab" data-id="'+x[0]+'"'+(UI.tab===x[0]?' aria-current="true"':'')+'>'+x[1]+(x[0]==='issues'&&iss.length?'<span class="count">'+iss.length+'</span>':'')+'</button>'}).join('')+'</div>';
   var body='';
   if(UI.tab==='overview'){
@@ -497,7 +498,7 @@ function vTrip(){
   }
   if(UI.tab==='settings'){
     body='<div class="card"><h3>Trip details</h3><div class="form"><label class="f">Name<input type="text" id="et_name" value="'+esc(t.name)+'"></label><label class="f">Destination<input type="text" id="et_dest" value="'+esc(t.dest||'')+'"></label><label class="f">Start<input type="date" id="et_start" value="'+esc(t.start||'')+'"></label><label class="f">End<input type="date" id="et_end" value="'+esc(t.end||'')+'"></label><label class="f">Capacity<input type="number" id="et_cap" min="0" value="'+esc(t.cap||'')+'"></label>'+
-      '<label class="f">Status<select id="et_status">'+['Planning','Registration open','Registration closed','Ongoing','Completed','Cancelled'].map(function(s){return '<option'+(t.status===s?' selected':'')+'>'+s+'</option>'}).join('')+'</select></label><label class="f">Name of the special arrangement<input type="text" id="et_special" value="'+esc(t.special||'')+'" placeholder="e.g. Garam Paani"></label></div>'+
+      '<label class="f">Status<select id="et_status">'+['Planning','Registration open','Registration closed','Ongoing','Completed','Cancelled'].map(function(s){return '<option'+(t.status===s?' selected':'')+'>'+s+'</option>'}).join('')+'</select></label><label class="f">Name of the special arrangement<input type="text" id="et_special" value="'+esc(t.special||'')+'" placeholder="e.g. Garam Paani"></label><label class="f" style="grid-column:1/-1">Google Sheet link for 1-click sync (Publish to web CSV)<input type="text" id="et_sheet_url" value="'+esc(t.sheetUrl||'')+'" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"></label></div>'+
       '<div class="btns mt"><button class="btn primary" data-act="saveTrip">Save</button>'+(UI.confirm==='trip'?'<button class="btn danger" data-act="deleteTrip">Yes, delete this trip and its registrations</button><button class="btn" data-act="cancelConfirm">Keep it</button>':'<button class="btn danger" data-act="askDeleteTrip">Delete trip</button>')+'</div><p class="note">Deleting a trip removes its registrations only. The people stay in the registry.</p></div>';
   }
   return head+body;
@@ -527,7 +528,18 @@ function vImport(){
   var step1='<div class="card"><div class="step"><span class="n">1</span><h3>Which trip is this sheet for?</h3></div><div class="filters mt"><label class="f"><span>Trip</span><select id="imp_mode" data-impbind="tripMode"><option value="new"'+(I.tripMode==='new'?' selected':'')+'>A new trip</option>'+(trips.length?'<option value="existing"'+(I.tripMode==='existing'?' selected':'')+'>A trip I already have (add new rows)</option>':'')+'</select></label></div>'+
    (I.tripMode==='existing'?'<label class="f mt">Trip<select id="imp_trip" data-impbind="tripId">'+trips.map(function(t){return '<option value="'+t.id+'"'+(I.tripId===t.id?' selected':'')+'>'+esc(t.name)+'</option>'}).join('')+'</select></label><p class="note">Rows already imported are skipped, so you can safely re-import the updated sheet.</p>':
    '<div class="form mt"><label class="f">Name<input type="text" id="imp_name" data-impnt="name" value="'+esc(I.nt.name)+'"></label><label class="f">Destination<input type="text" id="imp_dest" data-impnt="dest" value="'+esc(I.nt.dest)+'"></label><label class="f">Start<input type="date" id="imp_start" data-impnt="start" value="'+esc(I.nt.start)+'"></label><label class="f">End<input type="date" id="imp_end" data-impnt="end" value="'+esc(I.nt.end)+'"></label><label class="f">Capacity<input type="number" id="imp_cap" data-impnt="cap" value="'+esc(I.nt.cap)+'"></label></div>')+'</div>';
-  var step2='<div class="card"><div class="step"><span class="n">2</span><h3>Choose the sheet file</h3></div><p class="note">In Google Sheets use File, Download, Microsoft Excel (.xlsx). Excel and CSV files both work.</p><div class="btns"><input type="file" id="impfile" accept=".xlsx,.xls,.csv"></div>'+(I.fileName?'<p class="mt"><b>'+esc(I.fileName)+'</b> · '+I.rows.length+' rows'+(I.sheets.length>1?' · <select id="imp_sheet" data-impbind="sheet">'+I.sheets.map(function(s){return '<option'+(s===I.sheet?' selected':'')+'>'+esc(s)+'</option>'}).join('')+'</select>':'')+'</p>':'')+'</div>';
+  var step2='<div class="card"><div class="step"><span class="n">2</span><h3>Choose the sheet file or Google Sheet link</h3></div>'+
+    '<p class="note">Upload an Excel/CSV file from your computer:</p><div class="btns"><input type="file" id="impfile" accept=".xlsx,.xls,.csv"></div>'+
+    '<div style="margin-top:14px;border-top:1px dashed var(--line);padding-top:12px">'+
+      '<label class="f"><span>Or paste Google Sheet link (Publish to web CSV)</span>'+
+        '<div style="display:flex;gap:8px;margin-top:4px">'+
+          '<input type="text" id="imp_sheet_url" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" style="flex:1" value="'+esc(I.sheetUrl||'')+'">'+
+          '<button class="btn primary" data-act="fetchGoogleSheet">Fetch Sheet</button>'+
+        '</div>'+
+      '</label>'+
+      '<p class="note" style="margin-top:4px">In Google Sheets: <b>File → Share → Publish to web → Comma-separated values (.csv) → Publish</b>.</p>'+
+    '</div>'+
+    (I.fileName?'<p class="mt"><b>'+esc(I.fileName)+'</b> · '+I.rows.length+' rows'+(I.sheets.length>1?' · <select id="imp_sheet" data-impbind="sheet">'+I.sheets.map(function(s){return '<option'+(s===I.sheet?' selected':'')+'>'+esc(s)+'</option>'}).join('')+'</select>':'')+'</p>':'')+'</div>';
   var step3='';
   if(I.fileName){ step3='<div class="card"><div class="step"><span class="n">3</span><h3>Match the columns</h3></div><p class="note">Detected automatically. Change any that look wrong. Your IDs are never stored in full, only the last 4 digits and a one-way fingerprint used to spot repeat pilgrims.</p><div class="form mt">'+FIELDS.map(function(f){return '<label class="f">'+f[1]+'<select id="map_'+f[0]+'" data-map="'+f[0]+'"><option value="-1">Not in this sheet</option>'+I.headers.map(function(h,i){return '<option value="'+i+'"'+(I.map[f[0]]===i?' selected':'')+'>'+esc(h.slice(0,60))+'</option>'}).join('')+'</select></label>'}).join('')+'</div><div class="btns mt"><button class="btn primary" data-act="impPreview"'+(I.busy?' disabled':'')+'>Preview import</button></div></div>' }
   var step4=''; if(I.plan){ var s=I.plan.st; step4='<div class="card"><div class="step"><span class="n">4</span><h3>Preview</h3></div><div class="tiles mt">'+tile('Rows read',s.rows)+tile('New people',s.added)+tile('Already in registry',s.byId+s.byName,s.byId+' by ID, '+s.byName+' by name and phone')+tile('To review',s.flagged,'possible duplicates')+tile('Same person twice',s.again,'in this sheet')+(s.already?tile('Already imported',s.already):'')+(s.skipped?tile('Skipped',s.skipped,'no name'):'')+'</div><div class="btns mt"><button class="btn primary" data-act="impRun"'+(I.busy||!s.rows?' disabled':'')+'>Import '+(s.rows-s.already-s.skipped)+' rows</button></div></div>' }
@@ -648,9 +660,74 @@ var A={
   openPerson:function(id){UI.modal=id;UI.confirm=null},
   closeModal:function(){UI.modal=null;UI.confirm=null},
   scrim:function(id,e){ if(e.target.classList.contains('scrim')) A.closeModal() },
+  fetchGoogleSheet: async function(){
+    var inp = document.getElementById('imp_sheet_url');
+    var url = squash(inp ? inp.value : '');
+    if (!url) return toast('Please paste a Google Sheet published CSV link.');
+    if (url.indexOf('google.com') < 0 && url.indexOf('googleusercontent.com') < 0) {
+      return toast('The link must be a Google Sheets link.');
+    }
+    toast('Fetching Google Sheet...');
+    try {
+      var res = await fetch(apiBase + '/api/fetch-sheet?url=' + encodeURIComponent(url), {
+        headers: authHeaders()
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function(){ return {}; });
+        throw new Error(err.error || 'Server error ' + res.status);
+      }
+      var csvText = await res.text();
+      wb = XLSX.read(csvText, { type: 'string', cellDates: true });
+      UI.imp.sheetUrl = url;
+      UI.imp.fileName = 'Google Sheet (' + (wb.SheetNames[0] || 'Sheet1') + ')';
+      UI.imp.sheets = wb.SheetNames.slice();
+      loadSheet(wb.SheetNames[0]);
+      if (!UI.imp.nt.name) UI.imp.nt.name = 'Google Form Responses';
+      toast('Loaded ' + UI.imp.rows.length + ' rows from Google Sheet');
+      render();
+    } catch(e) {
+      toast('Could not fetch sheet: ' + (e.message || 'Check link'));
+    }
+  },
+  syncTripSheet: async function(tid){
+    var t = S.trips[tid];
+    if (!t || !t.sheetUrl) return toast('No Google Sheet link set for this trip. Add it in Trip Details.');
+    toast('Syncing with Google Sheet...');
+    try {
+      var res = await fetch(apiBase + '/api/fetch-sheet?url=' + encodeURIComponent(t.sheetUrl), {
+        headers: authHeaders()
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function(){ return {}; });
+        throw new Error(err.error || 'Server error ' + res.status);
+      }
+      var csvText = await res.text();
+      var sheetWb = XLSX.read(csvText, { type: 'string', cellDates: true });
+      var ws = sheetWb.Sheets[sheetWb.SheetNames[0]];
+      var all = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+      all = all.filter(function(r){ return r.some(function(c){ return squash(c) !== ''; }); });
+      if (!all.length) throw new Error('Sheet is empty');
+      var hdr = (all[0] || []).map(function(h){ return squash(h); });
+      var rows = all.slice(1);
+      var map = t.sheetMap || detect(hdr);
+      t.sheetMap = map;
+      var recs = await toRecs(rows, map);
+      var resIngest = ingest(recs, tid, S.people, S.regs);
+      inv();
+      markT(tid);
+      resIngest.tp.forEach(function(id){ markP(id); });
+      resIngest.tr.forEach(function(k){ markR(S.regs[k]); });
+      await commit();
+      var st = resIngest.st;
+      toast(st.regs + ' new registrations added (' + st.already + ' already up-to-date)');
+      render();
+    } catch(e) {
+      toast('Sync failed: ' + (e.message || 'Check your Google Sheet link'));
+    }
+  },
   newTripToggle:function(){UI.newTrip=!UI.newTrip},
   createTrip:function(){ var name=squash($('#nt_name').value); if(!name) return toast('Give the trip a name.'); var id='t'+rid(); S.trips[id]={id:id,name:name,dest:squash($('#nt_dest').value),start:$('#nt_start').value,end:$('#nt_end').value,cap:+$('#nt_cap').value||0,status:'Planning',special:'',created:Date.now()}; markT(id); UI.newTrip=false; UI.view='trip';UI.trip=id;UI.tab='overview'; saveNow() },
-  saveTrip:function(){ var t=S.trips[UI.trip]; t.name=squash($('#et_name').value)||t.name; t.dest=squash($('#et_dest').value); t.start=$('#et_start').value; t.end=$('#et_end').value; t.cap=+$('#et_cap').value||0; t.status=$('#et_status').value; t.special=squash($('#et_special').value); markT(t.id); toast('Trip saved'); saveNow() },
+  saveTrip:function(){ var t=S.trips[UI.trip]; t.name=squash($('#et_name').value)||t.name; t.dest=squash($('#et_dest').value); t.start=$('#et_start').value; t.end=$('#et_end').value; t.cap=+$('#et_cap').value||0; t.status=$('#et_status').value; t.special=squash($('#et_special').value); var su=$('#et_sheet_url'); if(su) t.sheetUrl=squash(su.value); markT(t.id); toast('Trip saved'); saveNow() },
   askDeleteTrip:function(){UI.confirm='trip'}, cancelConfirm:function(){UI.confirm=null},
   deleteTrip:function(){ var id=UI.trip; Object.values(S.regs).forEach(function(r){if(r.t===id) delete S.regs[r.id]}); delete S.trips[id]; dirty.dt.add(id); dirty.t.delete(id); for(var h of '0123456789abcdef') dirty.r.delete(id+'_'+h); UI.view='trips';UI.confirm=null;inv(); saveNow() },
   setPaid:function(id,e){ var r=S.regs[id]; r.paid=e.target.checked; markR(r); commit(); render() },
@@ -668,7 +745,7 @@ var A={
   impPreview:async function(){ var I=UI.imp; I.busy=true; render(); var recs=await toRecs(I.rows,I.map); var tid=I.tripMode==='existing'?I.tripId:'preview'; I.plan=ingest(recs,tid,JSON.parse(JSON.stringify(S.people)),JSON.parse(JSON.stringify(S.regs))); I.plan.recs=recs; I.busy=false; render() },
   impRun:async function(){ var I=UI.imp; if(I.busy) return; I.busy=true; render(); var tid=I.tripId;
     if(I.tripMode==='new'){ if(!squash(I.nt.name)){I.busy=false;toast('Name the trip first.');return} tid='t'+rid(); S.trips[tid]={id:tid,name:squash(I.nt.name),dest:squash(I.nt.dest),start:I.nt.start,end:I.nt.end,cap:+I.nt.cap||0,status:'Registration closed',special:'',created:Date.now()} }
-    var t=S.trips[tid]; if(I.map.special>=0&&!t.special){ var h=I.headers[I.map.special]; t.special=/garam/i.test(h)?'Garam Paani':squash(h).slice(0,32) }
+    var t=S.trips[tid]; if(I.sheetUrl){ t.sheetUrl=I.sheetUrl; t.sheetMap=I.map; } if(I.map.special>=0&&!t.special){ var h=I.headers[I.map.special]; t.special=/garam/i.test(h)?'Garam Paani':squash(h).slice(0,32) }
     var res=ingest(I.plan.recs,tid,S.people,S.regs); inv(); markT(tid); res.tp.forEach(function(id){markP(id)}); res.tr.forEach(function(k){markR(S.regs[k])});
     Object.values(S.people).forEach(function(p){ if(p.flag&&!S.people[p.flag.of]) p.flag=null });
     await commit(); I.busy=false; var st=res.st; UI.imp=newImp(); UI.view='trip'; UI.trip=tid; UI.tab='overview'; toast(st.regs+' registrations added, '+st.added+' new people, '+(st.byId+st.byName)+' already in the registry'); render() }

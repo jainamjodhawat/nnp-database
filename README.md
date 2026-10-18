@@ -72,6 +72,25 @@ Add the `MONGODB_URI` or `DATABASE_URL` environment variable in your dashboard o
 
 ---
 
+## 📊 1-Click Google Sheets / Forms Sync (Zero Downloads)
+
+For ongoing Yatras, you can sync responses directly from your Google Form responses sheet without downloading `.xlsx` files:
+
+1. **Publish Google Sheet as CSV (Done once in 30 seconds)**:
+   - In your Google Sheet: Click **File** $\rightarrow$ **Share** $\rightarrow$ **Publish to web**.
+   - Change format to **Comma-separated values (.csv)** $\rightarrow$ click **Publish**.
+   - Copy the published link.
+
+2. **In Yatra Desk**:
+   - Go to **Import** $\rightarrow$ Paste the link in **"Or paste Google Sheet link"** $\rightarrow$ Click **Fetch Sheet**.
+   - Or open any Trip $\rightarrow$ Click **Trip details** $\rightarrow$ Paste the link in **Google Sheet link**.
+
+3. **1-Click Batch Update**:
+   - In that trip's dashboard, a **`🔄 Sync Google Sheet`** button will appear in the top right.
+   - Click it anytime: Yatra Desk fetches the latest responses, automatically skips pilgrims who were already imported, adds only newly submitted people, and saves directly to MongoDB Atlas!
+
+---
+
 ## 📡 API Reference
 
 | Endpoint | Method | Description |
