@@ -16,6 +16,7 @@ let mongoClient = null;
 let mongoDb = null;
 let pgPool = null;
 let sqliteDb = null;
+let lastCloudError = null;
 
 // Atomically write JSON file for local snapshot
 function atomicWriteJson(filePath, data) {
@@ -42,13 +43,16 @@ function readJsonBackup() {
 // 1. MONGODB ATLAS CLOUD DRIVER
 // -------------------------------------------------------------
 async function initMongo(uri) {
+  const cleanUri = String(uri).trim().replace(/^["']|["']$/g, '');
   const { MongoClient } = require('mongodb');
-  mongoClient = new MongoClient(uri, {
-    serverSelectionTimeoutMS: 8000,
+  mongoClient = new MongoClient(cleanUri, {
+    serverSelectionTimeoutMS: 30000,
+    connectTimeoutMS: 30000,
   });
+  console.log('Connecting to MongoDB Atlas (timeout: 30s)...');
   await mongoClient.connect();
   // Use db from URI or default to 'yatra_desk'
-  const urlObj = new URL(uri.replace('mongodb+srv://', 'http://').replace('mongodb://', 'http://'));
+  const urlObj = new URL(cleanUri.replace('mongodb+srv://', 'http://').replace('mongodb://', 'http://'));
   const dbName = (urlObj.pathname && urlObj.pathname.length > 1) ? urlObj.pathname.slice(1) : 'yatra_desk';
   mongoDb = mongoClient.db(dbName);
   
@@ -460,21 +464,29 @@ async function bootstrapCloudIfEmpty() {
 // PUBLIC UNIFIED API
 // -------------------------------------------------------------
 async function init() {
-  const mongoUri = process.env.MONGODB_URI;
+  const rawMongo = process.env.MONGODB_URI;
+  const mongoUri = rawMongo ? String(rawMongo).trim().replace(/^["']|["']$/g, '') : null;
   const pgUri = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
+  console.log('Checking database configuration...');
   if (mongoUri) {
+    const masked = mongoUri.replace(/:([^:@]+)@/, ':****@');
+    console.log('Detected MONGODB_URI in environment:', masked);
     if (mongoUri.includes('cluster0.abcde.mongodb.net') || mongoUri.includes('<username>') || mongoUri.includes('<password>')) {
-      console.warn('⚠️ MONGODB_URI in .env contains the placeholder "cluster0.abcde.mongodb.net".');
-      console.warn('   Please replace it with your real cluster address from your MongoDB Atlas dashboard (e.g. cluster0.7xyzq.mongodb.net).');
+      lastCloudError = 'MONGODB_URI still contains placeholder "cluster0.abcde.mongodb.net"';
+      console.warn('⚠️ MONGODB_URI contains example placeholder ("cluster0.abcde.mongodb.net").');
+      console.warn('   Please replace it with your real cluster address from MongoDB Atlas.');
       console.log('Falling back to local storage in the meantime.');
     } else {
       try {
         await initMongo(mongoUri);
         await bootstrapCloudIfEmpty();
+        lastCloudError = null;
         return;
       } catch (err) {
+        lastCloudError = err.name + ': ' + err.message;
         console.error('⚠️ Could not connect to MongoDB Atlas cloud:', err.message);
+        if (err.cause) console.error('  Cause:', err.cause);
         console.log('Falling back to local storage.');
       }
     }
@@ -482,17 +494,20 @@ async function init() {
     try {
       await initPostgres(pgUri);
       await bootstrapCloudIfEmpty();
+      lastCloudError = null;
       return;
     } catch (err) {
+      lastCloudError = err.name + ': ' + err.message;
       console.error('⚠️ Could not connect to PostgreSQL cloud:', err.message);
       console.log('Falling back to local storage.');
     }
   } else {
+    lastCloudError = 'No MONGODB_URI or DATABASE_URL found in environment variables';
     console.log(`
 ℹ️  No cloud database URI specified.
    To connect to a free cloud database:
-   • MongoDB Atlas (Free): Add MONGODB_URI=mongodb+srv://... to .env
-   • Supabase / Neon (Free): Add DATABASE_URL=postgres://... to .env
+   • MongoDB Atlas (Free): Add MONGODB_URI=mongodb+srv://... to your environment variables
+   • Supabase / Neon (Free): Add DATABASE_URL=postgres://... to your environment variables
 `);
   }
 
@@ -537,7 +552,9 @@ async function getCounts() {
     regs: Object.keys(data.regs).length,
     storage: driverLabels[activeDriver] || activeDriver,
     cloudActive: activeDriver === 'mongodb' || activeDriver === 'postgres',
-    activeDriver
+    activeDriver,
+    cloudError: lastCloudError,
+    envMongoSet: !!process.env.MONGODB_URI
   };
 }
 
