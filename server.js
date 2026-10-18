@@ -164,10 +164,19 @@ app.get('/api/fetch-sheet', async (req, res) => {
       return res.status(400).json({ error: 'Only Google Sheets URLs are supported' });
     }
 
-    const response = await fetch(sheetUrl, {
+    let targetUrl = sheetUrl;
+    try {
+      const u = new URL(sheetUrl);
+      u.searchParams.set('_t', Date.now().toString());
+      targetUrl = u.toString();
+    } catch (e) {}
+
+    const response = await fetch(targetUrl, {
+      cache: 'no-store',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/csv,text/plain,*/*'
+        'Accept': 'text/csv,text/plain,*/*',
+        'Cache-Control': 'no-cache'
       }
     });
 
@@ -178,6 +187,9 @@ app.get('/api/fetch-sheet', async (req, res) => {
     }
 
     const text = await response.text();
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(text);
   } catch (err) {
