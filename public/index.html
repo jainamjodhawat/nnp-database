@@ -498,9 +498,13 @@ function vTrips(){
 }
 function vTrip(){
   var t=S.trips[UI.trip]; if(!t){UI.view='trips';return vTrips()}
+  t.outreach=t.outreach||{};
   var regPids=new Set((D().byT[t.id]||[]).map(function(r){return r.p}));
   var unregPeople=Object.values(S.people).filter(function(p){return !regPids.has(p.id)});
-  var st=tripStats(t.id), cap=+t.cap||0, tabs=[['overview','Overview'],['people','Participants'],['unreg','Call list ('+unregPeople.length+')'],['issues','Checks'],['settings','Trip details']], iss=issuesFor(t.id);
+  var pendingCount=unregPeople.filter(function(p){var o=t.outreach[p.id];return !o||(!o.called&&!o.messaged)}).length;
+  var contactedCount=unregPeople.length-pendingCount;
+  var callTabTitle='Call list ('+(unregPeople.length?pendingCount+' pending':'0')+')';
+  var st=tripStats(t.id), cap=+t.cap||0, tabs=[['overview','Overview'],['people','Participants'],['unreg',callTabTitle],['issues','Checks'],['settings','Trip details']], iss=issuesFor(t.id);
   var label=t.special||'Special arrangement';
   var syncBtn = t.sheetUrl ? '<button class="btn primary" data-act="syncTripSheet" data-id="'+t.id+'">🔄 Sync Google Sheet</button>' : '';
   var head='<div class="head"><div><button class="link" data-act="nav" data-id="trips">← All trips</button><h2 class="mt">'+esc(t.name)+'</h2><p>'+esc(t.dest||'')+(t.dest?' · ':'')+fmtRange(t)+' <span class="pill">'+esc(t.status)+'</span></p></div><div class="btns">'+syncBtn+'<button class="btn" data-act="reimport" data-id="'+t.id+'">Add rows from a sheet</button><button class="btn" data-act="exportTrip">Export CSV</button></div></div>'+
@@ -529,6 +533,11 @@ function vTrip(){
     var uq=(UI.uq||'').toLowerCase(), uf=UI.uf||'all', byP=D().byP;
     var filtered=unregPeople.filter(function(p){
       var rs=byP[p.id]||[];
+      var o=t.outreach[p.id];
+      if(uf==='pending' && o && (o.called || o.messaged)) return false;
+      if(uf==='contacted' && (!o || (!o.called && !o.messaged))) return false;
+      if(uf==='called' && (!o || !o.called)) return false;
+      if(uf==='messaged' && (!o || !o.messaged)) return false;
       if(uf==='repeat'&&rs.length<2) return false;
       if(uf==='single'&&rs.length!==1) return false;
       if(uf==='none'&&rs.length>0) return false;
@@ -539,18 +548,39 @@ function vTrip(){
     });
     var shown=filtered.slice(0,300);
     body='<div class="filters"><input type="text" id="uq" data-bind="uq" placeholder="Search name, phone, city, notes" value="'+esc(UI.uq||'')+'" style="flex:1;min-width:180px">'+
-      sel('uf',[['all','All unregistered ('+unregPeople.length+')'],['repeat','Joined 2+ past trips ('+unregPeople.filter(function(p){return (byP[p.id]||[]).length>=2}).length+')'],['single','Joined 1 past trip'],['none','No trip history yet']])+
+      sel('uf',[
+        ['all','All unregistered ('+unregPeople.length+')'],
+        ['pending','⚪ Not contacted yet ('+pendingCount+')'],
+        ['contacted','✓ Contacted ('+contactedCount+')'],
+        ['called','📞 Called ('+unregPeople.filter(function(p){var o=t.outreach[p.id];return o&&o.called}).length+')'],
+        ['messaged','💬 Messaged ('+unregPeople.filter(function(p){var o=t.outreach[p.id];return o&&o.messaged}).length+')'],
+        ['repeat','Joined 2+ past trips ('+unregPeople.filter(function(p){return (byP[p.id]||[]).length>=2}).length+')'],
+        ['single','Joined 1 past trip'],
+        ['none','No trip history yet']
+      ])+
       '<button class="btn" data-act="exportCallList">Export Call List (CSV)</button></div>'+
-      '<div class="note">'+filtered.length+' people in master registry who have not registered for '+esc(t.name)+(filtered.length>300?' (showing first 300)':'')+'</div>'+
-      (filtered.length?'<div class="tbl"><table><thead><tr><th>Name</th><th>Gender / Age</th><th>Phone</th><th>WhatsApp</th><th>City / Address</th><th class="num">Past yatras</th><th>Action</th></tr></thead><tbody>'+
+      '<div class="note">'+filtered.length+' pilgrims shown · <b>'+contactedCount+'</b> contacted ('+pendingCount+' pending)</div>'+
+      (filtered.length?'<div class="tbl"><table><thead><tr><th>Name</th><th>Outreach status</th><th>Gender / Age</th><th>Phone (Click to call)</th><th>WhatsApp</th><th>City / Address</th><th class="num">Past yatras</th><th>Action</th></tr></thead><tbody>'+
       shown.map(function(p){
         var rs=byP[p.id]||[];
         var num=p.wa||p.phone||'';
         var clean=num.replace(/\D/g,'');
         if(clean.length===10) clean='91'+clean;
-        var callBtn=num?'<a href="tel:'+esc(num)+'" class="chip" style="font-weight:600;text-decoration:none">📞 '+esc(num)+'</a>':'<span class="muted">–</span>';
-        var waBtn=clean?'<a href="https://wa.me/'+clean+'?text='+encodeURIComponent('Jai Jinendra '+pname(p)+' ji! Are you joining us for '+t.name+'?')+'" target="_blank" rel="noopener" class="chip" style="background:var(--good-bg);color:var(--good);text-decoration:none;font-weight:600">💬 Chat</a>':'<span class="muted">–</span>';
+        var o=t.outreach[p.id]||null;
+        var marker='';
+        if(o && o.called && o.messaged){
+          marker='<span class="pill good click" data-act="toggleOutreach" data-id="'+p.id+'" data-tip="Called &amp; Messaged. Click to change status" style="cursor:pointer">📞+💬 Contacted</span>';
+        } else if(o && o.called){
+          marker='<span class="pill good click" data-act="toggleOutreach" data-id="'+p.id+'" data-tip="Called on '+(o.ts?fmtD(o.ts,true):'')+'. Click to change" style="cursor:pointer">📞 Called</span>';
+        } else if(o && o.messaged){
+          marker='<span class="pill good click" data-act="toggleOutreach" data-id="'+p.id+'" data-tip="Messaged on '+(o.ts?fmtD(o.ts,true):'')+'. Click to change" style="cursor:pointer">💬 Messaged</span>';
+        } else {
+          marker='<span class="pill click" data-act="toggleOutreach" data-id="'+p.id+'" data-tip="Click to mark as called/messaged" style="cursor:pointer;opacity:0.65">⚪ Pending</span>';
+        }
+        var callBtn=num?'<a href="tel:'+esc(num)+'" data-act="trackCall" data-id="'+p.id+'" class="chip" style="font-weight:600;text-decoration:none">📞 '+esc(num)+'</a>':'<span class="muted">–</span>';
+        var waBtn=clean?'<a href="https://wa.me/'+clean+'?text='+encodeURIComponent('Jai Jinendra '+pname(p)+' ji! Are you joining us for '+t.name+'?')+'" target="_blank" rel="noopener" data-act="trackChat" data-id="'+p.id+'" class="chip" style="background:var(--good-bg);color:var(--good);text-decoration:none;font-weight:600">💬 Chat</a>':'<span class="muted">–</span>';
         return '<tr><td><button class="link" data-act="openPerson" data-id="'+p.id+'">'+esc(pname(p))+'</button>'+(p.flag?' <span class="pill warn"><i></i>review</span>':'')+'</td>'+
+          '<td>'+marker+'</td>'+
           '<td>'+esc(p.gender||'–')+' · '+(p.age==null?'–':p.age)+'</td>'+
           '<td>'+callBtn+'</td><td>'+waBtn+'</td><td>'+esc(p.address||'–')+'</td>'+
           '<td class="num"><div class="chips" style="justify-content:flex-end">'+(rs.length?rs.map(function(r){var pt=S.trips[r.t];return pt?'<span class="chip" title="'+esc(pt.name)+'">'+esc(pt.name.slice(0,16))+'</span>':''}).join(''):'<span class="muted">None</span>')+'</div></td>'+
@@ -835,13 +865,21 @@ var A={
   exportCallList: function(){
     var t = S.trips[UI.trip];
     if(!t) return;
+    t.outreach = t.outreach || {};
     var byP = D().byP;
     var regPids = new Set((D().byT[t.id] || []).map(function(r){ return r.p }));
     var list = Object.values(S.people).filter(function(p){ return !regPids.has(p.id); });
     exportCSV((t.name || 'trip').replace(/\W+/g, '_') + '_call_list.csv',
-      ['Name', 'Gender', 'Age', 'Phone', 'WhatsApp', 'Address', 'Past Trips Count', 'Past Trips Joined'],
+      ['Name', 'Gender', 'Age', 'Phone', 'WhatsApp', 'Address', 'Past Trips Count', 'Past Trips Joined', 'Outreach Status', 'Last Contacted Date'],
       list.map(function(p){
         var rs = byP[p.id] || [];
+        var o = t.outreach[p.id] || null;
+        var st = 'Pending';
+        if (o) {
+          if (o.called && o.messaged) st = 'Called & Messaged';
+          else if (o.called) st = 'Called';
+          else if (o.messaged) st = 'Messaged';
+        }
         return [
           pname(p),
           p.gender || '',
@@ -850,10 +888,54 @@ var A={
           p.wa || '',
           p.address || '',
           rs.length,
-          rs.map(function(r){ return (S.trips[r.t] || {}).name || '' }).filter(Boolean).join('; ')
+          rs.map(function(r){ return (S.trips[r.t] || {}).name || '' }).filter(Boolean).join('; '),
+          st,
+          o && o.ts ? fmtD(o.ts, true) : ''
         ];
       })
     );
+  },
+  trackCall: function(pid){
+    var t = S.trips[UI.trip]; if (!t) return;
+    t.outreach = t.outreach || {};
+    var entry = t.outreach[pid] || {};
+    entry.called = true;
+    entry.ts = Date.now();
+    t.outreach[pid] = entry;
+    markT(t.id);
+    saveNow();
+    setTimeout(render, 400);
+  },
+  trackChat: function(pid){
+    var t = S.trips[UI.trip]; if (!t) return;
+    t.outreach = t.outreach || {};
+    var entry = t.outreach[pid] || {};
+    entry.messaged = true;
+    entry.ts = Date.now();
+    t.outreach[pid] = entry;
+    markT(t.id);
+    saveNow();
+    setTimeout(render, 400);
+  },
+  toggleOutreach: function(pid){
+    var t = S.trips[UI.trip]; if (!t) return;
+    t.outreach = t.outreach || {};
+    var cur = t.outreach[pid];
+    if (!cur || (!cur.called && !cur.messaged)) {
+      t.outreach[pid] = { called: true, messaged: false, ts: Date.now() };
+      toast('Marked as Called');
+    } else if (cur.called && !cur.messaged) {
+      t.outreach[pid] = { called: false, messaged: true, ts: Date.now() };
+      toast('Marked as Messaged');
+    } else if (!cur.called && cur.messaged) {
+      t.outreach[pid] = { called: true, messaged: true, ts: Date.now() };
+      toast('Marked as Called & Messaged');
+    } else {
+      delete t.outreach[pid];
+      toast('Reset to Pending');
+    }
+    markT(t.id);
+    saveNow();
   },
   newTripToggle:function(){UI.newTrip=!UI.newTrip},
   createTrip:function(){ var name=squash($('#nt_name').value); if(!name) return toast('Give the trip a name.'); var id='t'+rid(); S.trips[id]={id:id,name:name,dest:squash($('#nt_dest').value),start:$('#nt_start').value,end:$('#nt_end').value,cap:+$('#nt_cap').value||0,status:'Planning',special:'',created:Date.now()}; markT(id); UI.newTrip=false; UI.view='trip';UI.trip=id;UI.tab='overview'; saveNow() },
@@ -880,7 +962,7 @@ var A={
     Object.values(S.people).forEach(function(p){ if(p.flag&&!S.people[p.flag.of]) p.flag=null });
     await commit(); I.busy=false; var st=res.st; UI.imp=newImp(); UI.view='trip'; UI.trip=tid; UI.tab='overview'; toast(st.regs+' registrations added, '+st.added+' new people, '+(st.byId+st.byName)+' already in the registry'); render() }
 };
-document.addEventListener('click',function(e){ var el=e.target.closest('[data-act]'); if(!el||el.tagName==='INPUT'&&el.type==='checkbox') return; var f=A[el.getAttribute('data-act')]; if(!f) return; f(el.getAttribute('data-id'),e); if(el.getAttribute('data-act')!=='impPreview'&&el.getAttribute('data-act')!=='impRun') render() });
+document.addEventListener('click',function(e){ var el=e.target.closest('[data-act]'); if(!el||el.tagName==='INPUT'&&el.type==='checkbox') return; var f=A[el.getAttribute('data-act')]; if(!f) return; f(el.getAttribute('data-id'),e); if(el.getAttribute('data-act')!=='impPreview'&&el.getAttribute('data-act')!=='impRun'&&el.getAttribute('data-act')!=='trackCall'&&el.getAttribute('data-act')!=='trackChat') render() });
 document.addEventListener('change',function(e){ var t=e.target;
   if(t.matches('input[type=checkbox][data-act]')){ A[t.getAttribute('data-act')](t.getAttribute('data-id'),e); return }
   if(t.id==='impfile'&&t.files[0]){ readFile(t.files[0]); return }
