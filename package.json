@@ -1,0 +1,27 @@
+{
+  "name": "yatra-desk",
+  "version": "1.0.0",
+  "description": "Yatra Desk - Complete pilgrimage management & registration web application with persistent storage",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "yatra",
+    "pilgrimage",
+    "management",
+    "registration",
+    "sqlite"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "compression": "^1.8.2",
+    "cors": "^2.8.6",
+    "express": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
