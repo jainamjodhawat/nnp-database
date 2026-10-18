@@ -470,7 +470,7 @@ function vTrip(){
   var t=S.trips[UI.trip]; if(!t){UI.view='trips';return vTrips()}
   var st=tripStats(t.id), cap=+t.cap||0, tabs=[['overview','Overview'],['people','Participants'],['issues','Checks'],['settings','Trip details']], iss=issuesFor(t.id);
   var label=t.special||'Special arrangement';
-  var head=var syncBtn = t.sheetUrl ? '<button class="btn primary" data-act="syncTripSheet" data-id="'+t.id+'">🔄 Sync Google Sheet</button>' : '';
+  var syncBtn = t.sheetUrl ? '<button class="btn primary" data-act="syncTripSheet" data-id="'+t.id+'">🔄 Sync Google Sheet</button>' : '';
   var head='<div class="head"><div><button class="link" data-act="nav" data-id="trips">← All trips</button><h2 class="mt">'+esc(t.name)+'</h2><p>'+esc(t.dest||'')+(t.dest?' · ':'')+fmtRange(t)+' <span class="pill">'+esc(t.status)+'</span></p></div><div class="btns">'+syncBtn+'<button class="btn" data-act="reimport" data-id="'+t.id+'">Add rows from a sheet</button><button class="btn" data-act="exportTrip">Export CSV</button></div></div>'+
     '<div class="nav" style="margin-top:0">'+tabs.map(function(x){return '<button data-act="tripTab" data-id="'+x[0]+'"'+(UI.tab===x[0]?' aria-current="true"':'')+'>'+x[1]+(x[0]==='issues'&&iss.length?'<span class="count">'+iss.length+'</span>':'')+'</button>'}).join('')+'</div>';
   var body='';
