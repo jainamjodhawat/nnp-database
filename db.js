@@ -39,11 +39,25 @@ function readJsonBackup() {
   return null;
 }
 
+function extractMongoUri(raw) {
+  if (!raw) return '';
+  let str = String(raw).trim();
+  if ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
+    str = str.slice(1, -1).trim();
+  }
+  // If user pasted 'MONGODB_URI=mongodb+srv://...' in Render value field:
+  const match = str.match(/mongodb(?:\+srv)?:\/\/[^\s"'<>]+/);
+  if (match) {
+    return match[0];
+  }
+  return str;
+}
+
 // -------------------------------------------------------------
 // 1. MONGODB ATLAS CLOUD DRIVER
 // -------------------------------------------------------------
 async function initMongo(uri) {
-  const cleanUri = String(uri).trim().replace(/^["']|["']$/g, '');
+  const cleanUri = extractMongoUri(uri);
   const { MongoClient } = require('mongodb');
   mongoClient = new MongoClient(cleanUri, {
     serverSelectionTimeoutMS: 30000,
@@ -465,7 +479,7 @@ async function bootstrapCloudIfEmpty() {
 // -------------------------------------------------------------
 async function init() {
   const rawMongo = process.env.MONGODB_URI;
-  const mongoUri = rawMongo ? String(rawMongo).trim().replace(/^["']|["']$/g, '') : null;
+  const mongoUri = rawMongo ? extractMongoUri(rawMongo) : null;
   const pgUri = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
   console.log('Checking database configuration...');
