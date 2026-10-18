@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -38,10 +39,10 @@ setInterval(() => {
 }, 25000);
 
 // API Routes
-app.get('/api/data', (req, res) => {
+app.get('/api/data', async (req, res) => {
   try {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const data = db.getAll();
+    const data = await db.getAll();
     res.json(data);
   } catch (err) {
     console.error('Error fetching data:', err);
@@ -49,13 +50,13 @@ app.get('/api/data', (req, res) => {
   }
 });
 
-app.post('/api/save', (req, res) => {
+app.post('/api/save', async (req, res) => {
   try {
     const payload = req.body;
     if (!payload || typeof payload !== 'object') {
       return res.status(400).json({ error: 'Invalid payload' });
     }
-    const result = db.saveAll(payload);
+    const result = await db.saveAll(payload);
     broadcastUpdate(result.lastModified);
     res.json(result);
   } catch (err) {
@@ -80,9 +81,9 @@ app.get('/api/events', (req, res) => {
 });
 
 // Export full database backup
-app.get('/api/backup', (req, res) => {
+app.get('/api/backup', async (req, res) => {
   try {
-    const backup = db.getBackup();
+    const backup = await db.getBackup();
     const dateStr = new Date().toISOString().split('T')[0];
     res.setHeader('Content-Disposition', `attachment; filename="yatra-backup-${dateStr}.json"`);
     res.setHeader('Content-Type', 'application/json');
@@ -94,10 +95,10 @@ app.get('/api/backup', (req, res) => {
 });
 
 // Restore database from backup
-app.post('/api/backup/restore', (req, res) => {
+app.post('/api/backup/restore', async (req, res) => {
   try {
     const backupData = req.body;
-    const result = db.restoreBackup(backupData);
+    const result = await db.restoreBackup(backupData);
     broadcastUpdate(result.lastModified);
     res.json({ ok: true, message: 'Database restored successfully', lastModified: result.lastModified });
   } catch (err) {
@@ -107,13 +108,18 @@ app.post('/api/backup/restore', (req, res) => {
 });
 
 // Health check endpoint (for deployment monitoring e.g. Render, Railway, Fly, Docker)
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    uptime: Math.round(process.uptime()),
-    timestamp: new Date().toISOString(),
-    ...db.getCounts()
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const counts = await db.getCounts();
+    res.json({
+      status: 'ok',
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+      ...counts
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Healthcheck error: ' + err.message });
+  }
 });
 
 // Fallback to single page app
@@ -122,24 +128,39 @@ app.use((req, res) => {
 });
 
 // Start server
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`
+let server;
+async function start() {
+  await db.init();
+  const counts = await db.getCounts();
+
+  server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`
 =====================================================
   🛕 Yatra Desk is running!
   URL: http://localhost:${PORT}
-  Storage: Persistent database in ${db.DATA_DIR}
+  Active Database: ${counts.storage}
   Ready for production deployment.
 =====================================================
 `);
+  });
+}
+
+start().catch(err => {
+  console.error('Fatal startup error:', err);
+  process.exit(1);
 });
 
 // Graceful shutdown
 const shutdown = () => {
   console.log('Shutting down server gracefully...');
-  server.close(() => {
-    console.log('Server stopped.');
+  if (server) {
+    server.close(() => {
+      console.log('Server stopped.');
+      process.exit(0);
+    });
+  } else {
     process.exit(0);
-  });
+  }
 };
 
 process.on('SIGINT', shutdown);
