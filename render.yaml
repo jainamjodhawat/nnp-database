@@ -10,6 +10,10 @@ services:
         value: production
       - key: PORT
         value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
       - key: DATA_DIR
         value: /var/data
     disk:
