@@ -449,17 +449,6 @@ function vMaster(){
       var first=n-returning, rate=n?Math.round(returning/n*100):0;
       return {trip:t,n:n,returning:returning,first:first,rate:rate};
     });
-    var pairs=[];
-    for(var i=0;i<trips.length;i++){
-      for(var j=i+1;j<trips.length;j++){
-        var a=trips[i], b=trips[j];
-        var setA=new Set((byT[a.id]||[]).map(function(r){return r.p})), c=0;
-        (byT[b.id]||[]).forEach(function(r){if(setA.has(r.p)) c++});
-        if(c>0) pairs.push({a:a,b:b,c:c});
-      }
-    }
-    pairs.sort(function(p1,p2){return p2.c-p1.c});
-    var pairsHtml=pairs.length?'<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px;font-weight:600">Top shared yatra connections:</span>'+pairs.slice(0,5).map(function(pr){return '<span class="chip" style="font-size:12px"><b>'+esc(pr.a.name)+'</b> ⟷ <b>'+esc(pr.b.name)+'</b>: <span style="color:var(--s3);font-weight:700">'+pr.c+' shared pilgrims</span></span>'}).join('')+'</div>':'';
     ovl='<div class="card" style="grid-column:1/-1"><div style="margin-bottom:10px"><h3 style="margin:0">Trip Loyalty &amp; Pilgrim Retention <small>how many pilgrims returned from past yatras vs joined for the first time</small></h3></div>'+
       '<div class="tbl" style="border:0"><table style="min-width:0"><thead><tr><th>Trip</th><th class="num">Total</th><th class="num" style="color:var(--good)">Returning pilgrims</th><th class="num" style="color:var(--s1)">First-timers</th><th style="min-width:180px">Audience breakdown</th></tr></thead><tbody>'+
       tripRetention.map(function(tr){
@@ -471,7 +460,7 @@ function vMaster(){
             (tr.returning?'<div style="width:'+tr.rate+'%;background:var(--s3)"></div>':'')+
             (tr.first?'<div style="width:'+(100-tr.rate)+'%;background:var(--s1)"></div>':'')+
           '</div></td></tr>';
-      }).join('')+'</tbody></table></div>'+pairsHtml+'</div>';
+      }).join('')+'</tbody></table></div></div>';
   }
   var top=rep.map(function(p){return {p:p,n:(byP[p.id]||[]).length}}).sort(function(a,b){return b.n-a.n}).slice(0,8);
   return '<div class="head"><div><h2>All trips</h2><p>One registry across every trip you have imported.</p></div></div>'+
