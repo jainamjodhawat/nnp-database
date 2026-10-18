@@ -107,7 +107,7 @@ app.post('/api/auth/login', (req, res) => {
 
 // Protect all remaining /api/* routes with password check
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth/')) return next();
+  if (req.path.startsWith('/auth/') || req.path === '/health') return next();
   if (!checkAuth(req)) {
     return res.status(401).json({ error: 'Unauthorized', authRequired: true });
   }
