@@ -122,6 +122,12 @@ dt{color:var(--muted)} dd{margin:0;overflow-wrap:anywhere}
 .stat-ok{color:var(--good)}.stat-bad{color:var(--crit)}
 .note{font-size:13px;color:var(--ink2)}
 @media (max-width:560px){.cmp{grid-template-columns:1fr}dl{grid-template-columns:100px 1fr}.tile .v{font-size:26px}}
+.login-box{min-height:85vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.login-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:32px 24px;width:min(100%,360px);box-shadow:var(--shadow);text-align:center}
+.login-card h2{font-size:22px;margin:10px 0 6px}
+.login-card p{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+.login-card form{display:flex;flex-direction:column;gap:12px;text-align:left}
+.login-err{background:var(--crit-bg);color:var(--crit);padding:7px 10px;border-radius:6px;font-size:13px;text-align:center}
 @media (prefers-reduced-motion:no-preference){.btn{transition:border-color .15s}}
 </style>
 <div id="app"></div>
@@ -132,7 +138,7 @@ dt{color:var(--muted)} dd{margin:0;overflow-wrap:anywhere}
 'use strict';
 /* ---------- state ---------- */
 var S={people:{},regs:{},trips:{}}, _D=null;
-var UI={view:'master',trip:null,tab:'overview',pq:'',pf:'all',tq:'',tg:'all',tsp:'all',tpd:'all',tn:'all',
+var UI={view:'master',trip:null,tab:'overview',pq:'',pf:'all',tq:'',tg:'all',tsp:'all',tpd:'all',tn:'all',authRequired:false,authenticated:true,loginErr:'',lockable:false,
   modal:null,confirm:null,newTrip:false,editTrip:false,toast:'',imp:newImp()};
 var db=null, mode='connecting', loaded={p:false,r:false,t:false}, busy=0;
 var dirty={p:new Set(),r:new Set(),t:new Set(),dt:new Set()};
@@ -153,15 +159,24 @@ function fail(e){ toast('Could not save: '+((e&&e.code==='invalid_argument')?'yo
 var saveQueue = Promise.resolve(), isApiServer = false, dbInfo = '';
 var apiBase = (window.location.protocol === 'file:') ? 'http://localhost:3000' : '';
 
+function authHeaders(extra){
+  var h = Object.assign({}, extra || {});
+  var tok = localStorage.getItem('yatra.auth_token');
+  if (tok) h['Authorization'] = 'Bearer ' + tok;
+  return h;
+}
+
 function setupLiveSync(){
   if (!window.EventSource) return;
   try {
-    var es = new EventSource(apiBase + '/api/events');
+    var tok = localStorage.getItem('yatra.auth_token');
+    var sseUrl = apiBase + '/api/events' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+    var es = new EventSource(sseUrl);
     es.onmessage = function(ev){
       try {
         var msg = JSON.parse(ev.data);
         if (msg && msg.type === 'update' && !busy && !dirty.p.size && !dirty.r.size && !dirty.t.size && !dirty.dt.size) {
-          fetch(apiBase + '/api/data', { cache: 'no-store' }).then(function(r){ return r.json() }).then(function(data){
+          fetch(apiBase + '/api/data', { cache: 'no-store', headers: authHeaders() }).then(function(r){ return r.json() }).then(function(data){
             if (!busy && !dirty.p.size && !dirty.r.size && !dirty.t.size && !dirty.dt.size) {
               S.people = data.people || {};
               S.regs = data.regs || {};
@@ -179,9 +194,35 @@ function setupLiveSync(){
 }
 
 async function connect(){
+  // Check auth requirement first
+  try {
+    var sRes = await fetch(apiBase + '/api/auth/status', { headers: authHeaders() });
+    if (sRes.ok) {
+      var st = await sRes.json();
+      UI.authRequired = !!st.authRequired;
+      UI.authenticated = !st.authRequired || !!st.authenticated;
+      UI.lockable = !!st.authRequired;
+      if (UI.authRequired && !UI.authenticated) {
+        mode = 'cloud';
+        loaded.p = loaded.r = loaded.t = true;
+        render();
+        return;
+      }
+    }
+  } catch(e) {}
+
   // 1. Try server backend API
   try {
-    var res = await fetch(apiBase + '/api/data', { cache: 'no-store' });
+    var res = await fetch(apiBase + '/api/data', { cache: 'no-store', headers: authHeaders() });
+    if (res.status === 401) {
+      UI.authRequired = true;
+      UI.authenticated = false;
+      UI.lockable = true;
+      mode = 'cloud';
+      loaded.p = loaded.r = loaded.t = true;
+      render();
+      return;
+    }
     if (res.ok) {
       var data = await res.json();
       S.people = data.people || {};
@@ -190,6 +231,7 @@ async function connect(){
       dbInfo = data.storage || 'Cloud Database';
       isApiServer = true;
       mode = 'cloud';
+      UI.authenticated = true;
       loaded.p = loaded.r = loaded.t = true;
       try{ localStorage.setItem('yatra.v1', JSON.stringify({people:S.people, regs:S.regs, trips:S.trips})); }catch(e){}
       inv();
@@ -231,9 +273,14 @@ async function commit(){
       await (saveQueue = saveQueue.then(async function(){
         var res = await fetch(apiBase + '/api/save', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(payload)
         });
+        if(res.status === 401){
+          UI.authenticated = false;
+          render();
+          throw new Error('Unauthorized');
+        }
         if(!res.ok) throw new Error('Save failed with status ' + res.status);
       }));
       dirty.p.clear(); dirty.r.clear(); dirty.t.clear(); dirty.dt.clear();
@@ -497,15 +544,34 @@ function modal(){
 }
 
 /* ---------- shell ---------- */
+function vLogin(){
+  return '<div class="login-box"><div class="login-card">'+
+    '<div style="font-size:36px;margin-bottom:8px">🛕</div>'+
+    '<h2>Yatra Desk</h2><p>Protected registry. Enter the team password to continue.</p>'+
+    '<form id="loginForm" onsubmit="event.preventDefault(); window.__yatra.A.submitLogin();">'+
+    '<label class="f">Password<input type="password" id="passInput" placeholder="Enter team password" autofocus autocomplete="current-password"></label>'+
+    (UI.loginErr ? '<div class="login-err">' + esc(UI.loginErr) + '</div>' : '')+
+    '<button type="submit" class="btn primary mt" style="justify-content:center;padding:9px;width:100%">Unlock Registry</button>'+
+    '</form></div></div>';
+}
+
 function render(){
+
   var a=document.activeElement, fid=a&&a.id, ss=a&&a.selectionStart, se=a&&a.selectionEnd;
   var fl=Object.values(S.people).filter(function(p){return p.flag&&S.people[p.flag.of]}).length;
   var nav=[['master','Overview'],['trips','Trips'],['people','People'],['review','Review'],['import','Import']];
+  if (UI.authRequired && !UI.authenticated) {
+    $('#app').innerHTML = vLogin();
+    var pi = document.getElementById('passInput');
+    if (pi && document.activeElement !== pi) pi.focus();
+    return;
+  }
   var cur=UI.view==='trip'?'trips':UI.view;
   var pillCls=(mode==='cloud'||mode==='browser')?'good':mode==='local'?'warn':'', pillTxt=mode==='cloud'?(dbInfo.indexOf('MongoDB')>=0?'Saved to MongoDB Atlas':(dbInfo||'Saved to Cloud')):mode==='browser'?(window.location.protocol==='file:'?'Local Mode (Start server for MongoDB)':'Saved in this browser'):mode==='local'?'Preview only, not saved':'Connecting…';
   var ready=loaded.p&&loaded.r&&loaded.t;
   var body=!ready?'<p class="note">Loading registry…</p>':UI.view==='master'?vMaster():UI.view==='trips'?vTrips():UI.view==='trip'?vTrip():UI.view==='people'?vPeople():UI.view==='review'?vReview():vImport();
-  $('#app').innerHTML='<div class="top"><div class="wrap"><div class="bar"><div class="brand"><b>Yatra Desk</b><span>यात्रा</span></div><span class="pill '+pillCls+'"><i></i>'+pillTxt+'</span></div><nav class="nav" aria-label="Sections">'+
+  var lockBtn = UI.lockable ? '<button class="btn small" data-act="logout" title="Lock session">Lock</button>' : '';
+  $('#app').innerHTML='<div class="top"><div class="wrap"><div class="bar"><div class="brand"><b>Yatra Desk</b><span>यात्रा</span></div><div class="btns"><span class="pill '+pillCls+'"><i></i>'+pillTxt+'</span>'+lockBtn+'</div></div><nav class="nav" aria-label="Sections">'+
     nav.map(function(n){return '<button data-act="nav" data-id="'+n[0]+'"'+(cur===n[0]?' aria-current="true"':'')+'>'+n[1]+(n[0]==='review'&&fl?'<span class="count">'+fl+'</span>':'')+'</button>'}).join('')+'</nav></div></div><div class="wrap"><main>'+body+'</main></div>'+(UI.modal?modal():'')+(UI.toast?'<div class="toast" role="status">'+esc(UI.toast)+'</div>':'');
   if(mode==='local'&&ready&&!window._warned){window._warned=1}
   if(fid){var el=document.getElementById(fid); if(el&&el!==document.activeElement){el.focus(); try{el.setSelectionRange(ss,se)}catch(e){}}}
@@ -540,6 +606,42 @@ function exportCSV(name,head,rows){
 }
 async function saveNow(){ await commit(); render() }
 var A={
+  submitLogin: async function(){
+    var passEl = document.getElementById('passInput');
+    var val = passEl ? passEl.value : '';
+    if (!val) {
+      UI.loginErr = 'Please enter the password.';
+      render();
+      return;
+    }
+    try {
+      var res = await fetch(apiBase + '/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: val })
+      });
+      var data = await res.json();
+      if (res.ok && data.ok) {
+        localStorage.setItem('yatra.auth_token', data.token);
+        UI.authenticated = true;
+        UI.loginErr = '';
+        toast('Unlocked successfully');
+        await connect();
+      } else {
+        UI.loginErr = data.error || 'Incorrect password. Try again.';
+        render();
+      }
+    } catch(e) {
+      UI.loginErr = 'Could not verify password with server.';
+      render();
+    }
+  },
+  logout: function(){
+    localStorage.removeItem('yatra.auth_token');
+    UI.authenticated = false;
+    toast('Locked');
+    render();
+  },
   nav:function(id){UI.view=id;UI.modal=null;UI.confirm=null;window.scrollTo(0,0)},
   openTrip:function(id){UI.view='trip';UI.trip=id;UI.tab='overview';UI.modal=null;window.scrollTo(0,0)},
   tripTab:function(id){UI.tab=id;UI.confirm=null},
